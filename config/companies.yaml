@@ -1,0 +1,178 @@
+# Bay Area Job Monitor — company & search-criteria configuration.
+#
+# Edit this file whenever you like: add/remove companies, flip `enabled`,
+# tune the role/seniority keyword lists, or add a `selectors` override for a
+# `render`-strategy company whose generic extraction comes back empty. It is
+# read fresh on every run — no restart or reconfiguration needed beyond
+# saving the file.
+
+settings:
+  request_timeout_seconds: 15
+  playwright_timeout_ms: 20000
+  inter_company_delay_seconds: 1.5
+  user_agent: "BayAreaJobMonitor/1.0 (personal job-search monitor; contact via GitHub repo)"
+
+  # Job titles to match against (case-insensitive, word-boundary matched).
+  # "Adjacent" is intentionally a moderate net: the 4 named roles plus the
+  # most obviously related sales-development / analyst titles.
+  role_keywords:
+    - "sdr"
+    - "sales development representative"
+    - "bdr"
+    - "business development representative"
+    - "business development associate"
+    - "business development analyst"
+    - "bda"
+    - "adr"
+    - "account development representative"
+    - "data analyst"
+    - "business analyst"
+    - "sales analyst"
+    - "sales operations analyst"
+    - "revenue operations analyst"
+
+  # Titles containing any of these are excluded even if a role keyword also
+  # matches (e.g. "Senior SDR", "BDR Manager") — these almost always require
+  # more than max_years_experience regardless of what the JD body says.
+  # A trailing level suffix (II/III/IV/V) is excluded separately in code.
+  seniority_exclude_keywords:
+    - "senior"
+    - "sr."
+    - "sr "
+    - "staff"
+    - "lead"
+    - "principal"
+    - "manager"
+    - "director"
+    - "vp"
+    - "vice president"
+    - "chief"
+    - "head of"
+
+  # Jobs whose JD states a minimum years-of-experience above this are
+  # excluded. Jobs that never state a number at all are included by
+  # default (see src/utils/filters.py::is_entry_level).
+  max_years_experience: 3
+
+companies:
+  # --- Workday-backed: hit the internal CxS JSON API directly (httpx POST),
+  # far more reliable than driving Workday's search UI with a browser. ---
+  - name: "Salesforce"
+    enabled: true
+    strategy: workday_api
+    base_url: "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site"
+    api_url: "https://salesforce.wd12.myworkdayjobs.com/wday/cxs/salesforce/External_Career_Site/jobs"
+    # "California - San Francisco" facet. Known v1 gap: this is one city's
+    # facet only — San Jose/Mountain View/etc. postings under Workday's own
+    # taxonomy won't surface until their facet IDs are added here too.
+    location_facets:
+      - "1038e944b1101012453f6677d95a0000"
+    page_size: 20
+
+  - name: "Intel"
+    enabled: true
+    strategy: workday_api
+    base_url: "https://intel.wd1.myworkdayjobs.com/External"
+    api_url: "https://intel.wd1.myworkdayjobs.com/wday/cxs/intel/External/jobs"
+    # "US, California, Santa Clara" facet — same one-city-only caveat as above.
+    location_facets:
+      - "1e4a4eb3adf10118b1dfe877bf8162d0"
+    page_size: 20
+
+  # --- Greenhouse-backed: public read-only JSON API, no scraping needed.
+  # content=true returns the full JD inline, so no second detail fetch is
+  # needed for these companies at all. ---
+  - name: "GoFundMe"
+    enabled: true
+    strategy: greenhouse_api
+    board_token: "gofundme"
+
+  - name: "Databricks"
+    enabled: true
+    strategy: greenhouse_api
+    board_token: "databricks"
+
+  - name: "Waymo"
+    enabled: true
+    strategy: greenhouse_api
+    board_token: "waymo"
+
+  - name: "BILL"
+    enabled: true
+    strategy: greenhouse_api
+    board_token: "billcom"
+    # BILL is remote-first with only two hub offices; its Bay Area jobs are
+    # tagged "San Jose, CA" specifically, not "San Francisco" — no
+    # special-casing needed since San Jose is already in BAY_AREA_CITIES,
+    # but a run showing BILL only under San Jose is expected, not a bug.
+
+  # --- Render strategy: try a plain httpx+BeautifulSoup fetch first
+  # (schema.org JSON-LD, then configured/heuristic selectors); escalate to
+  # headless Playwright only if that yields zero jobs. None of these have a
+  # verified-working selector yet — the `selectors` overrides below are
+  # empty on purpose and are the first thing to fill in if a company keeps
+  # returning zero results after a live run. ---
+  - name: "AWS"
+    enabled: true
+    strategy: render
+    url: "https://www.amazon.jobs/en/search?loc_group_id=san-francisco-bay-area&loc_query=San+Francisco+Bay+Area,+CA,+United+States&business_category[]=amazon-web-services"
+    selectors: null
+
+  - name: "Google"
+    enabled: true
+    strategy: render
+    url: "https://www.google.com/about/careers/applications/jobs/results?location=San%20Francisco%2C%20CA%2C%20USA"
+    selectors: null
+    notes: "Heavy client-side rendering, likely obfuscated classnames — expect to need a selectors override."
+
+  - name: "Atlassian"
+    enabled: true
+    strategy: render
+    url: "https://www.atlassian.com/company/careers/all-jobs?team=&location=United%20States&search="
+    selectors: null
+    notes: "Only country-level filter in the URL; Bay Area filtering happens entirely client-side."
+
+  - name: "Uber"
+    enabled: true
+    strategy: render
+    url: "https://jobs.uber.com/en/jobs/?location=San+Francisco&lat=37.77&lng=-122.42"
+    selectors: null
+
+  - name: "NVIDIA"
+    enabled: true
+    strategy: render
+    url: "https://jobs.nvidia.com/careers?location=San+Francisco&sort_by=distance&filter_distance=160&filter_include_remote=1"
+    selectors: null
+
+  - name: "Microsoft"
+    enabled: true
+    strategy: render
+    url: "https://apply.careers.microsoft.com/careers?location=San+Francisco,+CA,+United+States&sort_by=distance&filter_distance=160&filter_include_remote=1"
+    selectors: null
+
+  - name: "LinkedIn"
+    enabled: true
+    strategy: render
+    url: "https://careers.smartrecruiters.com/linkedin3?location=San+Francisco"
+    selectors: null
+
+  - name: "Splashtop"
+    enabled: true
+    strategy: render
+    url: "https://www.splashtop.com/job-openings"
+    selectors: null
+    notes: "No location query param; region dropdown is cosmetic; jobs link out to LinkedIn/104.com.tw to apply."
+
+  - name: "Toss"
+    enabled: true
+    strategy: render
+    url: "https://toss.im/career/jobs"
+    selectors: null
+    notes: "Expect ~0 Bay Area matches most runs; nearly all roles are Seoul-based. Zero results here is normal, not a bug."
+
+  - name: "SAP"
+    enabled: true
+    strategy: render
+    url: "https://jobs.sap.com/search/?createNewAlert=false&q=&locationsearch=San+Francisco&optionsFacetsDD_department=&optionsFacetsDD_customfield3=&optionsFacetsDD_country="
+    selectors: null
+    notes: "Self-hosted SuccessFactors Career Site Builder. Mixes true SF matches with proximity-ranked non-Bay-Area results — client-side filtering still applies."
