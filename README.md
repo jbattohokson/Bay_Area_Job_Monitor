@@ -236,6 +236,7 @@ launchctl load ~/Library/LaunchAgents/com.user.bayareajobmonitor.plist
   Intel's location facets are set to their primary Bay Area office only, so
   postings tagged under a different Bay Area city in Workday's own taxonomy
   won't surface until that facet ID is added to `companies.yaml` too.
+- **The summary paragraph is model-written.** Its numbers are checked against the digest data, but its wording isn't.
 - **Pay-range estimates are LLM-generated guesses**, not real compensation
   data, whenever a job's own posting doesn't state a range. They're always
   visibly labeled "(estimated)" in the email. Never treat them as accurate.
@@ -275,8 +276,8 @@ launchctl load ~/Library/LaunchAgents/com.user.bayareajobmonitor.plist
 
 ## Testing status (2026-10-20)
 
-- `tests/test_filters.py` and `tests/test_seen_store.py`: 42 tests (93 subtests) on the deterministic filtering logic (location, role keywords, seniority exclusions, years-of-experience parsing, the entry-level title list in `companies.yaml`, pay-range parsing) plus the seen-jobs store. All pass, run 3 times with identical results.
-- **Real dry run (2026-10-20):** 3 minutes end to end with `llama3.2`. 5 open roles matched (4 Salesforce business development roles, 1 LinkedIn SDR role, all San Francisco), with employer-stated pay ranges checked against a live posting. Uber and SAP blocked the requests (403). The digest is saved unedited in `examples/`, with notes.
+- `tests/`: 45 tests (93 subtests) on the deterministic filtering logic (location, role keywords, seniority exclusions, years-of-experience parsing, the entry-level title list in `companies.yaml`, pay-range parsing), the seen-jobs store, and the summary number check. All pass, run 3 times with identical results.
+- **Real dry runs (2026-10-20):** about 3 minutes each with `llama3.2`. 5 open roles matched (4 Salesforce business development roles, 1 LinkedIn SDR role, all San Francisco), with employer-stated pay ranges checked against a live posting. In 2 of 4 runs the model-written summary invented salary estimates; a check now rejects any summary number not in the digest data and falls back to a plain summary. Uber and SAP blocked the requests (403). The final digest is saved unedited in `examples/`, with notes.
 - Not covered by tests: the live scrapers (career sites change their pages, so results vary run to run), the CrewAI agents, and the Gmail send. Those are checked by running `python main.py --dry-run` and reading `output/digest_preview.html`.
 - Secret check before publishing: no credentials in the repo. `.env` and everything in `resumes/`, `data/`, `output/` and `logs/` (except placeholder files) are gitignored. The Greenhouse `board_token` values in `companies.yaml` are public board names, not secrets.
 

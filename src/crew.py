@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Optional
 
 from crewai import LLM, Agent, Crew, Process, Task
@@ -82,6 +83,28 @@ class PayEstimateResult(BaseModel):
 
 class SummaryResult(BaseModel):
     summary: str
+
+
+_NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _numbers(text: str) -> set[str]:
+    # "$65K" and "65,000" are different tokens on purpose: a summary may only repeat
+    # figures exactly as the digest shows them.
+    return {m.group().replace(",", "") for m in _NUMBER_RE.finditer(text)}
+
+
+def ungrounded_numbers(summary: str, result: DigestResult) -> set[str]:
+    """Numbers in the model-written summary that don't appear anywhere in the digest data.
+
+    Found in a real run: every job had an employer-stated pay range, yet the summary claimed
+    "estimated salary ranges ... $65K-$80K, $55K-$70K, and $75K-$90K". The digest table was
+    right; only the prose was invented. Anything not traceable to the data is rejected.
+    """
+    source = result.model_dump_json(exclude={"summary"})
+    # Per-company counts ("4 postings at Salesforce") are derived, not stored, so add them.
+    counts = {str(len(g.jobs)) for g in result.new_jobs_by_company + result.all_jobs_by_company}
+    return _numbers(summary) - _numbers(source) - counts
 
 
 def build_llm() -> LLM:
@@ -217,11 +240,6 @@ def _enrich_with_llm(result: DigestResult) -> None:
         )
         crew_output = crew.kickoff()
 
-        summary_result = crew_output.pydantic
-        if isinstance(summary_result, SummaryResult) and summary_result.summary:
-            result.summary = summary_result.summary
-        else:
-            raise ValueError("summary task did not return a usable SummaryResult")
 
         estimate_result = estimate_task.output.pydantic
         if isinstance(estimate_result, PayEstimateResult):
@@ -237,6 +255,15 @@ def _enrich_with_llm(result: DigestResult) -> None:
                         job.pay_range_is_estimate = True
         else:
             logger.warning("Pay-estimate task did not return usable output — leaving gap jobs unestimated")
+
+        # Checked after estimates are applied, so a summary may quote an estimate it was given.
+        summary_result = crew_output.pydantic
+        if not (isinstance(summary_result, SummaryResult) and summary_result.summary):
+            raise ValueError("summary task did not return a usable SummaryResult")
+        invented = ungrounded_numbers(summary_result.summary, result)
+        if invented:
+            raise ValueError(f"summary contains numbers not in the digest: {sorted(invented)}")
+        result.summary = summary_result.summary
 
     except Exception:
         logger.exception("LLM enrichment (pay estimates/summary) failed — using deterministic fallback")
