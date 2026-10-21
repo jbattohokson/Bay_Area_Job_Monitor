@@ -8,6 +8,12 @@ agents running against a local [Ollama](https://ollama.com/) model run it. No pa
 APIs, no cloud LLM calls, no data leaving your machine except the outbound
 Gmail SMTP send.
 
+## The problem and the result
+
+Entry-level SDR/BDR and data-analyst postings at Bay Area tech companies are spread across 16 career sites on different applicant-tracking systems, and most titles that look entry-level quietly require 2–3 years. This pipeline checks all of them, keeps only roles that are really 0–1 years and in the Bay Area, and emails what's new since the last run.
+
+**Real run (2026-10-20, dry run, local `llama3.2`):** 5 open roles passed every filter (4 Salesforce business development roles and a LinkedIn SDR 1, all in San Francisco), every one with an employer-stated pay range. Uber and SAP blocked the scraper. Details: [`examples/README.md`](examples/README.md).
+
 ## What it does
 
 - Scrapes: Salesforce, Intel (Workday), GoFundMe, Databricks, Waymo, BILL
@@ -280,6 +286,15 @@ launchctl load ~/Library/LaunchAgents/com.user.bayareajobmonitor.plist
 - **Real dry runs (2026-10-20):** about 3 minutes each with `llama3.2`. 5 open roles matched (4 Salesforce business development roles, 1 LinkedIn SDR role, all San Francisco), with employer-stated pay ranges checked against a live posting. In 2 of 4 runs the model-written summary invented salary estimates; a check now rejects any summary number not in the digest data and falls back to a plain summary. Uber and SAP blocked the requests (403). The final digest is saved unedited in `examples/`, with notes.
 - Not covered by tests: the live scrapers (career sites change their pages, so results vary run to run), the CrewAI agents, and the Gmail send. Those are checked by running `python main.py --dry-run` and reading `output/digest_preview.html`.
 - Secret check before publishing: no credentials in the repo. `.env` and everything in `resumes/`, `data/`, `output/` and `logs/` (except placeholder files) are gitignored. The Greenhouse `board_token` values in `companies.yaml` are public board names, not secrets.
+
+## Audit 2026-10-21
+
+Stress-testing the filters with real-world formats found four bugs, now fixed and covered by `AuditRegressionTests` (48 tests pass):
+
+- **"3 or more years of experience" wasn't read as a requirement.** Only "3+", ranges and "N years of experience" were, so a 3-year role counted as entry level and reached the digest.
+- **Pay ranges written as "$120K-$150K", "$65k – $85k" or "$95,000 USD - $115,000 USD" weren't recognized.** The digest showed an LLM estimate even though the employer had posted a range.
+- **"San José" (with the accent) didn't match San Jose.**
+- **Out-of-area look-alikes matched:** "Oakland, MI" (a city name followed by another state's code) and "Remote - Toronto, ON, CA" (Canada) both counted as Bay Area.
 
 ## Project structure
 

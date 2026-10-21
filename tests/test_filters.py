@@ -278,3 +278,25 @@ class TestSeniorityPunctuation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AuditRegressionTests(unittest.TestCase):
+    """Audit 2026-10-21: real-world formats the filters got wrong."""
+
+    def test_or_more_years_is_a_requirement(self):
+        self.assertEqual(extract_min_years_required("3 or more years of experience in sales."), 3)
+        self.assertEqual(extract_min_years_required("You have three or more years of experience."), 3)
+        self.assertFalse(is_entry_level("Requires 3 or more years of experience in SaaS sales."))
+
+    def test_k_and_usd_pay_ranges_are_extracted(self):
+        for text, want in [("Pay: $120K-$150K", "$120K-$150K"),
+                           ("Base pay $65k – $85k annually", "$65k – $85k annually"),
+                           ("Salary: $95,000 USD - $115,000 USD", "$95,000 USD - $115,000 USD")]:
+            with self.subTest(text=text):
+                self.assertEqual(extract_pay_range_from_text(text), want)
+
+    def test_locations(self):
+        for loc, want in [("San José, CA", True), ("Oakland, MI", False), ("Remote - Toronto, ON, CA", False),
+                          ("San Francisco, CA, US", True), ("Remote, CA", True), ("Oakland", True)]:
+            with self.subTest(loc=loc):
+                self.assertEqual(is_bay_area_location(loc), want)

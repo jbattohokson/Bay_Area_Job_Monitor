@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 
@@ -49,13 +50,22 @@ def is_bay_area_location(location: Optional[str]) -> bool:
     """
     if not location:
         return False
-    loc = location.lower().strip()
+    # AUDITED 2026-10-21: strip accents so "San José" matches "san jose" (it didn't).
+    loc = unicodedata.normalize("NFKD", location).encode("ascii", "ignore").decode().lower().strip()
 
-    if any(city in loc for city in BAY_AREA_CITIES):
-        return True
+    for city in BAY_AREA_CITIES:
+        for m in re.finditer(re.escape(city), loc):
+            # A city name followed by another state's code is a different city ("Oakland, MI").
+            state = re.match(r",?\s*([a-z]{2})\b", loc[m.end():])
+            if state and state.group(1) not in ("ca", "us"):
+                continue
+            return True
     if "bay area" in loc:
         return True
     if "remote" in loc:
+        # ", CA" after a Canadian province is Canada, not California ("Remote - Toronto, ON, CA")
+        if "canada" in loc or re.search(r"\b(?:on|bc|qc|ab|mb|ns|nb|nl|pe|sk)\s*,\s*ca\b", loc):
+            return False
         if re.search(r"\bca\b", loc) or "california" in loc:
             return True
         return False
@@ -164,7 +174,9 @@ _NUMBER_WORD_RE = re.compile(
     r"\b(" + "|".join(_NUMBER_WORDS) + r")\b(?:\s*\(\s*\d+\s*\))?", re.IGNORECASE
 )
 _YEARS_RANGE_RE = re.compile(r"(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*\+?\s*years?", re.IGNORECASE)
-_YEARS_PLUS_RE = re.compile(r"(\d+)\s*\+\s*years?", re.IGNORECASE)
+# "3+ years" and "3 or more years" (AUDITED 2026-10-21: "3 or more years of experience" matched
+# nothing, so the job counted as entry level and appeared in the digest)
+_YEARS_PLUS_RE = re.compile(r"(\d+)\s*(?:\+|or more|or greater)\s*years?", re.IGNORECASE)
 _YEARS_MINIMUM_RE = re.compile(
     r"(?:at least|minimum(?: of)?|min\.?)\s*(\d+)\s*\+?\s*years?", re.IGNORECASE
 )
@@ -262,10 +274,13 @@ def classify_work_mode(location: Optional[str], jd_text: Optional[str] = None) -
 
 
 _PAY_UNIT = r"(?:/\s?(?:hr|hour|yr|year)|per\s+(?:hour|year)|annually)"
+# AUDITED 2026-10-21: "$120K-$150K", "$65k – $85k" and "$95,000 USD - $115,000 USD" didn't match,
+# so the digest showed an LLM estimate even though the employer had posted a range.
+_PAY_AMOUNT = r"[\d,]+(?:\.\d{2})?(?:\s?[kK]\b)?(?:\s?USD\b)?"
 _PAY_RANGE_RE = re.compile(
-    r"\$\s?[\d,]+(?:\.\d{2})?(?:\s*" + _PAY_UNIT + r")?"
-    r"\s*(?:-|–|to)\s*"
-    r"\$?\s?[\d,]+(?:\.\d{2})?(?:\s*" + _PAY_UNIT + r")?",
+    r"\$\s?" + _PAY_AMOUNT + r"(?:\s*" + _PAY_UNIT + r")?"
+    r"\s*(?:-|–|—|to)\s*"
+    r"\$?\s?" + _PAY_AMOUNT + r"(?:\s*" + _PAY_UNIT + r")?",
     re.IGNORECASE,
 )
 
