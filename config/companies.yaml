@@ -15,21 +15,53 @@ settings:
   # Job titles to match against (case-insensitive, word-boundary matched).
   # "Adjacent" is intentionally a moderate net: the 4 named roles plus the
   # most obviously related sales-development / analyst titles.
+  # Covers the common naming conventions companies use for the same
+  # entry-level roles. "Junior", "Associate", "Entry Level", "New Grad" and
+  # "I" prefixes/suffixes need no entry of their own: "Junior Data Analyst"
+  # and "Data Analyst I" already match "data analyst".
   role_keywords:
+    # Sales development (SDR / BDR / ADR / MDR / LDR all name the same job)
     - "sdr"
     - "sales development representative"
+    - "sales development rep"
+    - "sales development associate"
+    - "sales development specialist"
     - "bdr"
     - "business development representative"
+    - "business development rep"
     - "business development associate"
     - "business development analyst"
+    - "business development specialist"
     - "bda"
     - "adr"
     - "account development representative"
+    - "account development rep"
+    - "account development associate"
+    - "mdr"
+    - "market development representative"
+    - "marketing development representative"
+    - "ldr"
+    - "lead development representative"
+    - "inside sales representative"
+    - "inside sales rep"
+    - "inside sales associate"
+    - "associate account executive"
+    # Data analyst and adjacent
     - "data analyst"
+    - "data analytics associate"
+    - "analytics associate"
+    - "analytics analyst"
+    - "business intelligence analyst"
+    - "bi analyst"
+    - "reporting analyst"
     - "business analyst"
+    - "business operations analyst"
+    - "marketing analyst"
+    - "product analyst"
     - "sales analyst"
     - "sales operations analyst"
     - "revenue operations analyst"
+    - "marketing operations analyst"
 
   # Titles containing any of these are excluded even if a role keyword also
   # matches (e.g. "Senior SDR", "BDR Manager") — these almost always require
@@ -48,11 +80,16 @@ settings:
     - "vice president"
     - "chief"
     - "head of"
+    - "supervisor"
+    - "experienced"
+    - "mid-level"
+    - "mid level"
 
-  # Jobs whose JD states a minimum years-of-experience above this are
-  # excluded. Jobs that never state a number at all are included by
-  # default (see src/utils/filters.py::is_entry_level).
-  max_years_experience: 3
+  # Entry level only: 0-1 years. A JD requiring more than this anywhere (e.g.
+  # "2+ years of experience") is excluded; "preferred" years are ignored.
+  # Jobs that never state a number are included by default (see
+  # src/utils/filters.py::is_entry_level).
+  max_years_experience: 1
 
 companies:
   # --- Workday-backed: hit the internal CxS JSON API directly (httpx POST),

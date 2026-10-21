@@ -39,9 +39,12 @@ def _verify_all_links(digest) -> None:
     from src.utils.config import load_settings
 
     settings = load_settings()
+    checked: dict[str, bool] = {}  # new jobs also appear under "all", so check each link once
     for group in list(digest.new_jobs_by_company) + list(digest.all_jobs_by_company):
         for job in group.jobs:
-            job.link_verified = verify_link(job.link, settings)
+            if job.link not in checked:
+                checked[job.link] = verify_link(job.link, settings)
+            job.link_verified = checked[job.link]
 
 
 def main() -> int:
@@ -87,6 +90,9 @@ def main() -> int:
                 recipient=os.environ["GMAIL_RECIPIENT"],
             )
             logger.info("Digest emailed to %s", os.environ["GMAIL_RECIPIENT"])
+            from src.utils.seen_store import mark_seen
+
+            mark_seen([job.model_dump() for group in digest.all_jobs_by_company for job in group.jobs])
     except KeyError as exc:
         logger.error("Missing required environment variable: %s (check your .env)", exc)
         return 1
