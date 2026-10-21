@@ -257,6 +257,8 @@ launchctl load ~/Library/LaunchAgents/com.user.bayareajobmonitor.plist
 | Email send fails with an auth error | You're using your real Gmail password instead of an App Password, or 2-Step Verification isn't enabled. |
 | A company always returns 0 jobs | Check `logs/run.log` for a warning. It may genuinely have no matching roles right now, or it may need a `selectors` override (see Customizing above). |
 
+**Write-up:** [`Bay_Area_Job_Monitor.html`](Bay_Area_Job_Monitor.html) (also `docs/Bay_Area_Job_Monitor_Report.pdf`).
+
 ## Related project
 
 [AI_Resume_Tailor](https://github.com/jbattohokson/AI_Resume_Tailor) takes a job description plus a resume, works the job's keywords into the resume where the experience supports them, and fact-checks every draft. This project's layout (`src/tools/` vs `src/utils/`, stable job links in `data/seen_jobs.json`, a single `run_crew()` entry point) is kept clean so the tailor can consume its output later. That hand-off isn't built yet.
@@ -264,6 +266,7 @@ launchctl load ~/Library/LaunchAgents/com.user.bayareajobmonitor.plist
 ## Testing status (2026-10-20)
 
 - `tests/test_filters.py`: 31 tests (35 subtests) on the deterministic filtering logic (location, role keywords, seniority exclusions, years-of-experience parsing, pay-range parsing). All pass, run 3 times with identical results.
+- **Real dry run (2026-10-20):** 3 minutes end to end with `llama3.2`. 5 open roles matched (4 Salesforce business development roles, 1 LinkedIn SDR role, all San Francisco), with employer-stated pay ranges checked against a live posting. Uber and SAP blocked the requests (403). The digest is saved unedited in `examples/`, with notes.
 - Not covered by tests: the live scrapers (career sites change their pages, so results vary run to run), the CrewAI agents, and the Gmail send. Those are checked by running `python main.py --dry-run` and reading `output/digest_preview.html`.
 - Secret check before publishing: no credentials in the repo. `.env` and everything in `resumes/`, `data/`, `output/` and `logs/` (except placeholder files) are gitignored. The Greenhouse `board_token` values in `companies.yaml` are public board names, not secrets.
 
