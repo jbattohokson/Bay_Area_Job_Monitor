@@ -26,7 +26,7 @@ from src.utils.filters import (
     matches_role_keywords,
     sort_companies_by_count,
 )
-from src.utils.seen_store import diff_and_update
+from src.utils.seen_store import diff_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +41,8 @@ class JobFilterAndDiffTool(BaseTool):
     name: str = "filter_and_diff_jobs"
     description: str = (
         "Deterministically filters to Bay Area, role-matching, entry-level jobs, "
-        "deduplicates, diffs against the seen-jobs store, groups by company "
-        "(descending count), and persists the store. Returns a JSON object with keys "
+        "deduplicates, diffs against the seen-jobs store and groups by company "
+        "(descending count). Returns a JSON object with keys "
         "new_jobs_by_company and all_jobs_by_company, where each job already has "
         "work_mode, years_experience, and stated_pay_range (may be empty/null if the "
         "JD didn't state one) filled in. Treat this tool's output as ground truth — "
@@ -60,14 +60,14 @@ class JobFilterAndDiffTool(BaseTool):
         settings = load_settings()
         role_keywords = settings.get("role_keywords", [])
         seniority_keywords = settings.get("seniority_exclude_keywords", [])
-        max_years = settings.get("max_years_experience", 3)
+        max_years = settings.get("max_years_experience", 1)
 
         # Re-applied here even though the scraper's Stage A already did this —
         # cheap and idempotent, and keeps this tool the single authoritative
         # filter regardless of what upstream did.
         jobs = filter_bay_area_jobs(raw_jobs)
         jobs = [j for j in jobs if matches_role_keywords(j.get("title"), role_keywords)]
-        jobs = [j for j in jobs if not has_seniority_keyword(j.get("title"), seniority_keywords)]
+        jobs = [j for j in jobs if not has_seniority_keyword(j.get("title"), seniority_keywords, role_keywords)]
         jobs = [j for j in jobs if is_entry_level(j.get("description"), max_years)]
 
         for job in jobs:
@@ -80,7 +80,7 @@ class JobFilterAndDiffTool(BaseTool):
             job.pop("description", None)
 
         jobs = deduplicate_jobs(jobs)
-        new_jobs, all_jobs = diff_and_update(jobs)
+        new_jobs, all_jobs = diff_jobs(jobs)
 
         return json.dumps(
             {

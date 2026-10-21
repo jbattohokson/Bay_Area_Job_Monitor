@@ -21,9 +21,19 @@ BAY_AREA_CITIES = [
     "santa clara",
     "redwood city",
     "oakland",
+    "menlo park",
+    "cupertino",
+    "san mateo",
+    "foster city",
+    "burlingame",
+    "san bruno",
+    "milpitas",
+    "fremont",
+    "berkeley",
+    "emeryville",
 ]
 
-_SENIORITY_LEVEL_SUFFIX_RE = re.compile(r"\b(II|III|IV|V)\b\s*$")
+_SENIORITY_LEVEL_SUFFIX_RE = re.compile(r"\b(II|III|IV|V|[2-5])\s*$")
 
 
 def is_bay_area_location(location: Optional[str]) -> bool:
@@ -106,8 +116,14 @@ def sort_companies_by_count(grouped: dict[str, list[dict]]) -> list[tuple[str, l
 
 
 def _keyword_pattern(keywords: list[str]) -> re.Pattern:
-    escaped = [re.escape(k) for k in keywords]
-    return re.compile(r"\b(?:" + "|".join(escaped) + r")\b", re.IGNORECASE)
+    # \b only on edges that are word characters: a trailing \b after "sr." would
+    # require a letter right after the period, so "Sr. Data Analyst" never matched.
+    parts = []
+    for k in keywords:
+        start = r"\b" if re.match(r"\w", k) else ""
+        end = r"\b" if re.search(r"\w$", k) else ""
+        parts.append(start + re.escape(k) + end)
+    return re.compile("(?:" + "|".join(parts) + ")", re.IGNORECASE)
 
 
 def matches_role_keywords(title: Optional[str], keywords: list[str]) -> bool:
@@ -119,66 +135,95 @@ def matches_role_keywords(title: Optional[str], keywords: list[str]) -> bool:
     return bool(_keyword_pattern(keywords).search(title))
 
 
-def has_seniority_keyword(title: Optional[str], exclude_keywords: list[str]) -> bool:
+def has_seniority_keyword(
+    title: Optional[str], exclude_keywords: list[str], role_keywords: Optional[list[str]] = None
+) -> bool:
     """True if `title` carries a seniority qualifier (Senior/Staff/Lead/...)
-    or a trailing roman-numeral level suffix (II/III/IV/V). "Junior" and
+    or a trailing level suffix (II/III/IV/V or 2-5). "Junior" and
     "Associate" are intentionally never treated as seniority signals — they
-    are pro-entry-level, not exclusions."""
+    are pro-entry-level, not exclusions.
+
+    The role-keyword phrase itself is removed first, so an entry-level title
+    that happens to contain a seniority word ("Lead Development
+    Representative") isn't excluded, while "Senior LDR" still is."""
     if not title:
         return False
+    if role_keywords:
+        title = _keyword_pattern(role_keywords).sub(" ", title)
     if exclude_keywords and _keyword_pattern(exclude_keywords).search(title):
         return True
     return bool(_SENIORITY_LEVEL_SUFFIX_RE.search(title.strip()))
 
 
-_YEARS_RANGE_RE = re.compile(r"(\d+)\s*(?:-|to|–)\s*(\d+)\+?\s*\+?\s*years?", re.IGNORECASE)
+_NUMBER_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+# "two (2) years" / "two years" -> "2 years", so written-out numbers are caught too.
+_NUMBER_WORD_RE = re.compile(
+    r"\b(" + "|".join(_NUMBER_WORDS) + r")\b(?:\s*\(\s*\d+\s*\))?", re.IGNORECASE
+)
+_YEARS_RANGE_RE = re.compile(r"(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*\+?\s*years?", re.IGNORECASE)
 _YEARS_PLUS_RE = re.compile(r"(\d+)\s*\+\s*years?", re.IGNORECASE)
 _YEARS_MINIMUM_RE = re.compile(
-    r"(?:at least|minimum(?: of)?)\s*(\d+)\s*years?", re.IGNORECASE
+    r"(?:at least|minimum(?: of)?|min\.?)\s*(\d+)\s*\+?\s*years?", re.IGNORECASE
 )
+_YEARS_OF_RE = re.compile(r"(?<![\d+\-–])(\d+)\s*years?\s+(?:of\s+)?(?:\w+\s+){0,4}experience", re.IGNORECASE)
 _ENTRY_LEVEL_PHRASES_RE = re.compile(
-    r"entry[\s-]?level|new grad|recent graduate|no prior experience(?:\s+(?:is\s+)?required)?|"
-    r"no experience necessary",
+    r"entry[\s-]?level|new grad|recent (?:college )?graduate|early[\s-]career|"
+    r"no (?:prior |previous )?experience (?:is )?(?:required|necessary|needed)|"
+    r"0\s*(?:-|to|–)\s*1\s*years?",
     re.IGNORECASE,
 )
+# A sentence only counts as a requirement if it talks about the candidate's
+# experience — this skips company blurbs like "10+ years in the industry".
+_REQUIREMENT_CONTEXT_RE = re.compile(
+    r"experience|minimum|at least|required|requires|background|quota|track record|"
+    r"in a similar role|in an? \w+ role|working in",
+    re.IGNORECASE,
+)
+# Nice-to-haves don't decide eligibility: "3+ years preferred" on a 0-1 year role.
+_PREFERRED_RE = re.compile(r"prefer|nice to have|a plus|bonus|ideally", re.IGNORECASE)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.;!?\n])\s+|\s*[•·]\s*")
 
 
 def extract_min_years_required(jd_text: Optional[str]) -> Optional[int]:
-    """Best-effort, deterministic extraction of the minimum years of
-    experience a JD asks for. Checks explicit ranges, "N+ years", "at
-    least/minimum N years", and no-number entry-level phrases (→ 0). If
-    multiple matches are found anywhere in the text, returns the MINIMUM
-    across all of them — a simple, inclusion-biased heuristic that avoids
-    over-excluding a job just because unrelated boilerplate elsewhere in the
-    JD mentions a large number (e.g. "10+ years in business" as a
-    company-history blurb). Returns None if nothing matches at all.
+    """Best-effort, deterministic extraction of the years of experience a JD
+    requires. Looks at each sentence that reads as a requirement (mentions
+    experience, a minimum, a role, etc.) and isn't marked preferred, and
+    pulls explicit ranges ("1-2 years": 1), "N+ years", "at least/minimum N
+    years" and "N years of ... experience", including written-out numbers.
+    Returns the LARGEST stated minimum, since a posting that requires 3 years
+    anywhere isn't a 0-1 year role. If no number is found but the JD uses an
+    entry-level phrase ("entry level", "new grad", "no experience required"),
+    returns 0. Returns None if nothing matches at all.
 
     This is regex-based pattern matching over freeform prose, not language
-    understanding — it can misfire on unusually worded JDs. Accepted
-    tradeoff for a niche filter; the caller treats an unclear/absent signal
-    as "include" by default (see is_entry_level).
+    understanding — it can misfire on unusually worded JDs. The caller
+    treats an absent signal as "include" by default (see is_entry_level).
     """
     if not jd_text:
         return None
 
+    text = _NUMBER_WORD_RE.sub(lambda m: str(_NUMBER_WORDS[m.group(1).lower()]), jd_text)
     candidates: list[int] = []
-    for match in _YEARS_RANGE_RE.finditer(jd_text):
-        candidates.append(int(match.group(1)))
-    for match in _YEARS_PLUS_RE.finditer(jd_text):
-        candidates.append(int(match.group(1)))
-    for match in _YEARS_MINIMUM_RE.finditer(jd_text):
-        candidates.append(int(match.group(1)))
-    if _ENTRY_LEVEL_PHRASES_RE.search(jd_text):
-        candidates.append(0)
+    for sentence in _SENTENCE_SPLIT_RE.split(text):
+        if not _REQUIREMENT_CONTEXT_RE.search(sentence) or _PREFERRED_RE.search(sentence):
+            continue
+        for regex in (_YEARS_RANGE_RE, _YEARS_PLUS_RE, _YEARS_MINIMUM_RE, _YEARS_OF_RE):
+            candidates.extend(int(m.group(1)) for m in regex.finditer(sentence))
 
-    if not candidates:
-        return None
-    return min(candidates)
+    if candidates:
+        return max(candidates)
+    if _ENTRY_LEVEL_PHRASES_RE.search(text):
+        return 0
+    return None
 
 
-def is_entry_level(jd_text: Optional[str], max_years: int = 3) -> bool:
+def is_entry_level(jd_text: Optional[str], max_years: int = 1) -> bool:
     """None (unstated) -> True (include, per confirmed default: many
-    genuinely entry-level postings simply don't mention a year range)."""
+    genuinely entry-level postings simply don't mention a year range; the
+    title filters have already removed senior-sounding roles)."""
     min_years = extract_min_years_required(jd_text)
     if min_years is None:
         return True

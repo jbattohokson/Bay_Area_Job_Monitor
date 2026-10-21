@@ -1,7 +1,7 @@
 # Bay Area Job Monitor
 
 A fully local, open-source job-monitoring pipeline. It scrapes the career
-pages of 16 tech companies, filters down to entry-level (0-3 years) SDR /
+pages of 16 tech companies, filters down to entry-level (0-1 years or no experience) SDR /
 BDR / BDA / Data-Analyst-and-adjacent roles in the San Francisco Bay Area,
 and emails you an HTML digest. Two [CrewAI](https://www.crewai.com/)
 agents running against a local [Ollama](https://ollama.com/) model run it. No paid
@@ -14,10 +14,17 @@ Gmail SMTP send.
   (Greenhouse), AWS, Google, Atlassian, Uber, NVIDIA, Microsoft, LinkedIn,
   Splashtop, Toss, SAP (browser-rendered).
 - Filters to San Francisco, San Jose, Sunnyvale, Mountain View, Palo Alto,
-  Santa Clara, Redwood City, Oakland, or Bay-Area-qualified Remote.
-- Filters to SDR/BDR/BDA/Data-Analyst-and-adjacent titles, excludes
-  seniority-qualified titles (Senior/Staff/Lead/Manager/Director/etc.), and
-  excludes roles whose JD states more than 3 years of experience required.
+  Santa Clara, Redwood City, Oakland, Menlo Park, Cupertino, San Mateo,
+  Foster City, Burlingame, San Bruno, Milpitas, Fremont, Berkeley,
+  Emeryville, or Bay-Area-qualified Remote.
+- Filters to SDR/BDR/BDA/Data-Analyst-and-adjacent titles under the names
+  companies actually use (SDR, BDR, ADR, MDR, LDR, Inside Sales Rep,
+  Associate Account Executive, Junior/Associate/Entry Level Data Analyst,
+  BI Analyst, Reporting Analyst, Sales/RevOps Analyst, and more in
+  `config/companies.yaml`), excludes seniority-qualified titles
+  (Senior/Sr./Staff/Lead/Manager/Director/II/2/etc.), and excludes roles whose
+  JD requires more than 1 year of experience anywhere. "Preferred" years
+  don't count against a job.
 - Shows, per job: title, company, location, work mode (Remote/Hybrid/Onsite),
   years of experience, and a pay range: the employer's own stated figure
   when the JD includes one, otherwise a clearly-labeled LLM-generated
@@ -25,7 +32,8 @@ Gmail SMTP send.
 - Tracks what it's already shown you across runs, so scheduled runs surface
   **new** postings instead of re-sending the same list every time. The
   email has both a "New since last run" section and a full "All current
-  openings" section.
+  openings" section. Jobs only count as seen after a real email goes out, so
+  a `--dry-run` or a failed send doesn't use up the "new" list.
 - Flags (never silently drops) any application link that fails an automated
   reachability check, since corporate bot-detection routinely blocks
   automated requests to pages that work fine in a real browser.
@@ -234,7 +242,9 @@ launchctl load ~/Library/LaunchAgents/com.user.bayareajobmonitor.plist
 - **Experience-level filtering is regex-based pattern matching**, not true
   language understanding. It can misfire on unusually worded job
   descriptions. A JD that never mentions years of experience at all is
-  included by default rather than excluded.
+  included by default rather than excluded, since the title filters have
+  already removed senior-sounding roles. A range like "1-2 years" counts as
+  1 year and is kept.
 - **Link verification has a false-positive rate.** Many corporate career
   sites block automated requests even when the link works fine in a real
   browser, so a "verify before applying" marker is often not a sign of an
@@ -263,7 +273,7 @@ launchctl load ~/Library/LaunchAgents/com.user.bayareajobmonitor.plist
 
 ## Testing status (2026-10-20)
 
-- `tests/test_filters.py`: 31 tests (35 subtests) on the deterministic filtering logic (location, role keywords, seniority exclusions, years-of-experience parsing, pay-range parsing). All pass, run 3 times with identical results.
+- `tests/test_filters.py` and `tests/test_seen_store.py`: 42 tests on the deterministic filtering logic (location, role keywords, seniority exclusions, years-of-experience parsing, the entry-level title list in `companies.yaml`, pay-range parsing, plus the seen-jobs store). All pass.
 - Not covered by tests: the live scrapers (career sites change their pages, so results vary run to run), the CrewAI agents, and the Gmail send. Those are checked by running `python main.py --dry-run` and reading `output/digest_preview.html`.
 - Secret check before publishing: no credentials in the repo. `.env` and everything in `resumes/`, `data/`, `output/` and `logs/` (except placeholder files) are gitignored. The Greenhouse `board_token` values in `companies.yaml` are public board names, not secrets.
 
@@ -287,7 +297,8 @@ bay-area-job-monitor/
 │       └── resume.py          # resumes/ text extraction
 ├── data/seen_jobs.json       # generated at runtime, gitignored
 ├── output/digest_preview.html # --dry-run output, gitignored
-└── tests/test_filters.py     # unit tests for the deterministic filtering logic
+├── tests/test_filters.py     # unit tests for the deterministic filtering logic
+└── tests/test_seen_store.py  # dry runs and failed sends don't mark jobs as seen
 ```
 
 ## License

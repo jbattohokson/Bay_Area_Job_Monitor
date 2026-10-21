@@ -36,26 +36,27 @@ def save_seen_store(store: dict, path: Path = DEFAULT_STORE_PATH) -> None:
     tmp.replace(path)  # atomic — a crash mid-write can't truncate the real file
 
 
-def diff_and_update(
+def diff_jobs(
     current_jobs: list[dict], path: Path = DEFAULT_STORE_PATH
 ) -> tuple[list[dict], list[dict]]:
-    """Returns (new_jobs, all_jobs). First run ever (empty store) makes
-    new_jobs == all_jobs for free — nothing is "in store" yet, so every key
-    counts as new; no special-case branch needed."""
+    """Returns (new_jobs, all_jobs) without touching the store. First run ever
+    (empty store) makes new_jobs == all_jobs for free — nothing is "in store"
+    yet, so every key counts as new; no special-case branch needed."""
     store = load_seen_store(path)
-    new_jobs: list[dict] = []
-    now = datetime.now(timezone.utc).isoformat()
-
-    for job in current_jobs:
-        key = job_key(job)
-        if key not in store:
-            new_jobs.append(job)
-            store[key] = {
-                "first_seen": now,
-                "company": job.get("company", ""),
-                "title": job.get("title", ""),
-                "location": job.get("location", ""),
-            }
-
-    save_seen_store(store, path)
+    new_jobs = [job for job in current_jobs if job_key(job) not in store]
     return new_jobs, current_jobs
+
+
+def mark_seen(jobs: list[dict], path: Path = DEFAULT_STORE_PATH) -> None:
+    """Records jobs as emailed. main.py calls this only after a real send
+    succeeds, so a dry run or a failed send doesn't use up the "new" list."""
+    store = load_seen_store(path)
+    now = datetime.now(timezone.utc).isoformat()
+    for job in jobs:
+        store.setdefault(job_key(job), {
+            "first_seen": now,
+            "company": job.get("company", ""),
+            "title": job.get("title", ""),
+            "location": job.get("location", ""),
+        })
+    save_seen_store(store, path)

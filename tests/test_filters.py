@@ -18,6 +18,12 @@ from src.utils.filters import (
     sort_companies_by_count,
 )
 
+from src.utils.config import load_settings
+
+_SETTINGS = load_settings()
+CONFIG_ROLE_KEYWORDS = _SETTINGS["role_keywords"]
+CONFIG_SENIORITY_KEYWORDS = _SETTINGS["seniority_exclude_keywords"]
+
 ROLE_KEYWORDS = [
     "sdr",
     "sales development representative",
@@ -157,9 +163,26 @@ class TestExperienceExtraction(unittest.TestCase):
             extract_min_years_required("entry level position, no experience necessary"), 0
         )
 
-    def test_minimum_across_matches(self):
+    def test_company_history_is_not_a_requirement(self):
         text = "Minimum 2 years in a related field. Our company has 10+ years in the industry."
         self.assertEqual(extract_min_years_required(text), 2)
+
+    def test_largest_requirement_wins(self):
+        text = "1+ years with Salesforce. 3+ years of B2B sales experience required."
+        self.assertEqual(extract_min_years_required(text), 3)
+
+    def test_preferred_years_ignored(self):
+        text = "0-1 years of experience. 3+ years of SaaS experience preferred."
+        self.assertEqual(extract_min_years_required(text), 0)
+
+    def test_written_out_numbers(self):
+        self.assertEqual(extract_min_years_required("Two (2) years of sales experience."), 2)
+        self.assertEqual(extract_min_years_required("At least one year of experience."), 1)
+
+    def test_entry_level_phrase_does_not_override_stated_years(self):
+        self.assertEqual(
+            extract_min_years_required("Entry-level role. Requires 2+ years of experience."), 2
+        )
 
     def test_no_mention_returns_none(self):
         self.assertIsNone(extract_min_years_required("We are looking for a great teammate."))
@@ -171,6 +194,16 @@ class TestExperienceExtraction(unittest.TestCase):
     def test_is_entry_level_respects_max_years(self):
         self.assertTrue(is_entry_level("1-3 years of experience", max_years=3))
         self.assertFalse(is_entry_level("5+ years required", max_years=3))
+
+    def test_default_is_zero_to_one_year(self):
+        for jd in ["0-1 years of experience", "1+ years of experience", "No experience required.",
+                   "New grad role", "1-2 years of experience"]:
+            with self.subTest(jd=jd):
+                self.assertTrue(is_entry_level(jd))
+        for jd in ["2+ years of experience", "2-4 years of experience in sales",
+                   "Minimum of 3 years in a quota-carrying role"]:
+            with self.subTest(jd=jd):
+                self.assertFalse(is_entry_level(jd))
 
     def test_format_years_experience(self):
         self.assertEqual(format_years_experience(None), "Entry level / not specified")
@@ -208,6 +241,39 @@ class TestPayRangeExtraction(unittest.TestCase):
 
     def test_no_pay_mentioned(self):
         self.assertIsNone(extract_pay_range_from_text("We are looking for a great teammate."))
+
+
+class TestEntryLevelTitleConventions(unittest.TestCase):
+    def test_config_matches_common_entry_level_titles(self):
+        for title in [
+            "Sales Development Representative", "Sales Development Rep", "SDR",
+            "Business Development Representative", "BDR, Mid-Market", "Business Development Associate",
+            "Account Development Representative", "Market Development Representative",
+            "Lead Development Representative", "Inside Sales Representative",
+            "Associate Account Executive", "Junior Data Analyst", "Associate Data Analyst",
+            "Data Analyst I", "Entry Level Data Analyst", "Business Intelligence Analyst",
+            "BI Analyst", "Reporting Analyst", "Analytics Associate", "Sales Operations Analyst",
+        ]:
+            with self.subTest(title=title):
+                self.assertTrue(matches_role_keywords(title, CONFIG_ROLE_KEYWORDS))
+                self.assertFalse(has_seniority_keyword(title, CONFIG_SENIORITY_KEYWORDS, CONFIG_ROLE_KEYWORDS))
+
+    def test_config_excludes_senior_variants(self):
+        for title in ["Senior SDR", "Sr. Data Analyst", "BDR Team Lead", "Data Analyst 2",
+                      "Senior Lead Development Representative", "Mid-Level Business Analyst",
+                      "Experienced Inside Sales Representative"]:
+            with self.subTest(title=title):
+                self.assertTrue(has_seniority_keyword(title, CONFIG_SENIORITY_KEYWORDS, CONFIG_ROLE_KEYWORDS))
+
+
+class TestSeniorityPunctuation(unittest.TestCase):
+    def test_abbreviations_with_period_or_space_excluded(self):
+        for title in ["Sr. Data Analyst", "Sr Data Analyst", "Sr.Data Analyst"]:
+            with self.subTest(title=title):
+                self.assertTrue(has_seniority_keyword(title, SENIORITY_KEYWORDS))
+
+    def test_plain_title_kept(self):
+        self.assertFalse(has_seniority_keyword("Data Analyst", SENIORITY_KEYWORDS))
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ import logging
 import re
 import time
 from typing import Optional, Type
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -28,7 +29,12 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from src.utils.config import get_enabled_companies, load_companies, load_settings
-from src.utils.filters import filter_bay_area_jobs, has_seniority_keyword, matches_role_keywords
+from src.utils.filters import (
+    BAY_AREA_CITIES,
+    filter_bay_area_jobs,
+    has_seniority_keyword,
+    matches_role_keywords,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +50,11 @@ _EMPLOYMENT_TYPE_RE = re.compile(
     r"^(full[\s-]?time|part[\s-]?time|contract|intern(?:ship)?|temporary)$", re.IGNORECASE
 )
 _LOCATION_LINE_RE = re.compile(
-    r"(san francisco|san jose|sunnyvale|mountain view|palo alto|santa clara|"
-    r"redwood city|oakland|remote|bay area)",
+    "(" + "|".join(map(re.escape, BAY_AREA_CITIES + ["remote", "bay area"])) + ")",
     re.IGNORECASE,
 )
+# Workday shows "2 Locations" instead of a city when a posting has several.
+_WORKDAY_MULTI_LOCATION_RE = re.compile(r"^\d+\s+locations?$", re.IGNORECASE)
 _CITY_STATE_RE = re.compile(r"^[A-Za-z][A-Za-z .]*,\s*[A-Z]{2}(\s*\+\s*\d+\s*more)?$")
 
 
@@ -158,7 +165,7 @@ class CareerPageScraperTool(BaseTool):
         seniority_keywords = settings.get("seniority_exclude_keywords", [])
         survivors = filter_bay_area_jobs(jobs)
         survivors = [j for j in survivors if matches_role_keywords(j.get("title"), role_keywords)]
-        survivors = [j for j in survivors if not has_seniority_keyword(j.get("title"), seniority_keywords)]
+        survivors = [j for j in survivors if not has_seniority_keyword(j.get("title"), seniority_keywords, role_keywords)]
         return survivors
 
     # ------------------------------------------------------------------
@@ -189,12 +196,18 @@ class CareerPageScraperTool(BaseTool):
                 if not postings:
                     break
                 for p in postings:
+                    location = p.get("locationsText", "")
+                    if cfg.get("location_facets") and _WORKDAY_MULTI_LOCATION_RE.match(location.strip()):
+                        # The location facet already limited results to a Bay Area
+                        # city, so keep multi-location postings instead of letting
+                        # the location filter drop them for not naming a city.
+                        location = f"{location} (incl. Bay Area)"
                     raw_jobs.append(
                         {
                             "company": cfg["name"],
                             "title": (p.get("title") or "").strip(),
                             "department": None,
-                            "location": p.get("locationsText", ""),
+                            "location": location,
                             "link": cfg["base_url"].rstrip("/") + p.get("externalPath", ""),
                             "_external_path": p.get("externalPath", ""),
                         }
@@ -290,6 +303,9 @@ class CareerPageScraperTool(BaseTool):
         for card in cards:
             card["company"] = cfg["name"]
             card.setdefault("department", None)
+            # Career pages often use relative hrefs ("/jobs/123"); make them clickable.
+            if card.get("link"):
+                card["link"] = urljoin(cfg["url"], card["link"])
 
         survivors = self._stage_a_filter(cards, settings)
 
