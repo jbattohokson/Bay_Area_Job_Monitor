@@ -305,6 +305,10 @@ bay-area-job-monitor/
 └── tests/test_seen_store.py  # dry runs and failed sends don't mark jobs as seen
 ```
 
+## About
+
+Local job-monitoring pipeline that scrapes 16 tech company career pages, filters for entry-level SDR, BDR and data analyst roles in the Bay Area, and emails an HTML digest. CrewAI + a local Ollama model, no paid APIs. Python.
+
 ## License
 
 MIT (see `LICENSE`).
